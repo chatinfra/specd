@@ -1,0 +1,1289 @@
+openapi: 3.1.0
+info:
+  title: specd OpenSpec Remote API
+  version: "1.0"
+  description: |
+    Trusted single-token HTTP API for controlling an OpenSpec repository from
+    remote clients. The API exposes deterministic OpenSpec reads and mutations,
+    canonical spec browsing, Superdir context for a single-homed `superdir ui`,
+    and durable jobs for long-running lifecycle and `/opsx-*` agent workflows.
+  contact:
+    name: ChatInfra Tooling
+    email: api@chatinfra.com
+
+servers:
+  - url: http://127.0.0.1:2781
+    description: Local trusted specd server
+
+security:
+  - bearerAuth: []
+
+tags:
+  - name: specd API
+    description: Health, OpenSpec inventory, artifact, lifecycle, job, prompt, Superdir, and agent workflow endpoints.
+
+paths:
+  /health:
+    get:
+      summary: Get specd health
+      operationId: getSpecdHealth
+      tags: [specd API]
+      responses:
+        "200":
+          description: Server health and dependency readiness.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthResponse"
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "500": { $ref: "#/components/responses/InternalError" }
+
+  /server:
+    get:
+      summary: Get server capability metadata
+      operationId: getSpecdServerMetadata
+      tags: [specd API]
+      responses:
+        "200":
+          description: Repository, OpenSpec CLI, job-store, and capability metadata without secrets.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ServerMetadataResponse"
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "500": { $ref: "#/components/responses/InternalError" }
+
+  /entries:
+    get:
+      summary: List OpenSpec entries
+      operationId: listSpecdEntries
+      tags: [specd API]
+      parameters:
+        - name: kind
+          in: query
+          required: false
+          description: Lifecycle kind to list. Omit or use `all` to list all supported lifecycle kinds.
+          schema:
+            type: string
+            enum: [all, backlog, active, archived]
+            default: all
+      responses:
+        "200":
+          description: Normalized OpenSpec entry inventory.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EntryListResponse"
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "500": { $ref: "#/components/responses/InternalError" }
+
+  /entries/{entryKind}/{entryId}:
+    get:
+      summary: Get OpenSpec entry detail
+      operationId: getSpecdEntry
+      tags: [specd API]
+      parameters:
+        - $ref: "#/components/parameters/EntryKind"
+        - $ref: "#/components/parameters/EntryId"
+      responses:
+        "200":
+          description: Entry metadata, artifact tree, task progress, and safe Superdir context.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EntryDetailResponse"
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "500": { $ref: "#/components/responses/InternalError" }
+
+  /entries/changes:
+    post:
+      summary: Create an OpenSpec change scaffold
+      operationId: createSpecdChange
+      tags: [specd API]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateChangeRequest"
+      responses:
+        "201":
+          description: Created change detail.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EntryDetailResponse"
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "409": { $ref: "#/components/responses/Conflict" }
+        "500": { $ref: "#/components/responses/InternalError" }
+
+  /entries/backlog:
+    post:
+      summary: Create an OpenSpec backlog scaffold
+      operationId: createSpecdBacklogEntry
+      tags: [specd API]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateBacklogRequest"
+      responses:
+        "201":
+          description: Created backlog entry detail.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EntryDetailResponse"
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "409": { $ref: "#/components/responses/Conflict" }
+        "500": { $ref: "#/components/responses/InternalError" }
+
+  /artifacts/content:
+    get:
+      summary: Read editable artifact content
+      operationId: readSpecdArtifactContent
+      tags: [specd API]
+      parameters:
+        - $ref: "#/components/parameters/EntryKindQuery"
+        - $ref: "#/components/parameters/EntryIdQuery"
+        - $ref: "#/components/parameters/ArtifactPathQuery"
+      responses:
+        "200":
+          description: Artifact content with revision metadata for safe write-back.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ArtifactContentResponse"
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "500": { $ref: "#/components/responses/InternalError" }
+
+  /artifacts:
+    put:
+      summary: Update an editable artifact
+      operationId: updateSpecdArtifact
+      tags: [specd API]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ArtifactUpdateRequest"
+      responses:
+        "200":
+          description: Updated artifact metadata and revision token.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ArtifactUpdateResponse"
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+        "500": { $ref: "#/components/responses/InternalError" }
+
+  /canonical-specs:
+    get:
+      summary: List canonical OpenSpec specs
+      operationId: listSpecdCanonicalSpecs
+      tags: [specd API]
+      parameters:
+        - name: includeContent
+          in: query
+          required: false
+          description: Include source content in each summary when true.
+          schema:
+            type: boolean
+            default: false
+      responses:
+        "200":
+          description: Canonical spec inventory.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CanonicalSpecListResponse"
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "500": { $ref: "#/components/responses/InternalError" }
+
+  /canonical-specs/{capability}:
+    get:
+      summary: Read a canonical OpenSpec spec
+      operationId: getSpecdCanonicalSpec
+      tags: [specd API]
+      parameters:
+        - $ref: "#/components/parameters/Capability"
+      responses:
+        "200":
+          description: Canonical spec metadata and source content.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CanonicalSpecDetailResponse"
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "500": { $ref: "#/components/responses/InternalError" }
+
+  /openspec/status:
+    post:
+      summary: Run OpenSpec status
+      operationId: runSpecdOpenSpecStatus
+      tags: [specd API]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/OpenSpecChangeRequest"
+      responses:
+        "200":
+          description: Structured OpenSpec status output.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OpenSpecStatusResponse"
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "500": { $ref: "#/components/responses/InternalError" }
+
+  /openspec/instructions:
+    post:
+      summary: Run OpenSpec instructions
+      operationId: runSpecdOpenSpecInstructions
+      tags: [specd API]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/OpenSpecInstructionsRequest"
+      responses:
+        "200":
+          description: Structured OpenSpec workflow instructions.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OpenSpecInstructionsResponse"
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "500": { $ref: "#/components/responses/InternalError" }
+
+  /openspec/validate:
+    post:
+      summary: Run OpenSpec validation
+      operationId: runSpecdOpenSpecValidation
+      tags: [specd API]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/OpenSpecValidateRequest"
+      responses:
+        "200":
+          description: Bounded validation result.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OpenSpecValidationResponse"
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "422": { $ref: "#/components/responses/SemanticFailure" }
+        "500": { $ref: "#/components/responses/InternalError" }
+
+  /openspec/sync:
+    post:
+      summary: Submit OpenSpec sync as a durable job
+      operationId: submitSpecdOpenSpecSync
+      tags: [specd API]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/OpenSpecChangeRequest"
+      responses:
+        "202":
+          description: Sync job accepted.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/JobResource"
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "409": { $ref: "#/components/responses/Conflict" }
+        "500": { $ref: "#/components/responses/InternalError" }
+
+  /openspec/archive:
+    post:
+      summary: Submit OpenSpec archive as a durable job
+      operationId: submitSpecdOpenSpecArchive
+      tags: [specd API]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/OpenSpecChangeRequest"
+      responses:
+        "202":
+          description: Archive job accepted.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/JobResource"
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+        "500": { $ref: "#/components/responses/InternalError" }
+
+  /superdirs:
+    get:
+      summary: List discovered Superdir worktrees and association metadata
+      operationId: listSpecdSuperdirs
+      tags: [specd API]
+      responses:
+        "200":
+          description: Safe Superdir worktree inventory, including associated and unmatched worktrees, without raw secrets.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SuperdirListResponse"
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "500": { $ref: "#/components/responses/InternalError" }
+
+  /superdirs/setup:
+    post:
+      summary: Submit associated Superdir setup as a durable job
+      operationId: submitSpecdSuperdirSetup
+      tags: [specd API]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SuperdirSetupRequest"
+      responses:
+        "202":
+          description: Setup job accepted.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/JobResource"
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "500": { $ref: "#/components/responses/InternalError" }
+
+  /jobs:
+    get:
+      summary: List durable jobs
+      operationId: listSpecdJobs
+      tags: [specd API]
+      responses:
+        "200":
+          description: Durable job snapshots retained according to the 30-day terminal-job retention window.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/JobListResponse"
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "500": { $ref: "#/components/responses/InternalError" }
+
+  /jobs/{jobId}:
+    get:
+      summary: Get one durable job
+      operationId: getSpecdJob
+      tags: [specd API]
+      parameters:
+        - $ref: "#/components/parameters/JobId"
+      responses:
+        "200":
+          description: Durable job snapshot, pending prompt, terminal result, and sanitized diagnostics.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/JobResource"
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "500": { $ref: "#/components/responses/InternalError" }
+
+  /jobs/{jobId}/cancel:
+    post:
+      summary: Request best-effort job cancellation
+      operationId: cancelSpecdJob
+      tags: [specd API]
+      parameters:
+        - $ref: "#/components/parameters/JobId"
+      responses:
+        "202":
+          description: Cancellation request recorded.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/JobResource"
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+        "500": { $ref: "#/components/responses/InternalError" }
+
+  /jobs/{jobId}/events:
+    get:
+      summary: Stream persisted and live job events over SSE
+      operationId: streamSpecdJobEvents
+      tags: [specd API]
+      parameters:
+        - $ref: "#/components/parameters/JobId"
+        - name: afterSequence
+          in: query
+          required: false
+          description: Replay persisted events with sequence numbers greater than this value before tailing live events.
+          schema:
+            type: integer
+            minimum: 0
+      responses:
+        "200":
+          description: Ordered SSE stream for one job.
+          content:
+            text/event-stream:
+              schema:
+                oneOf:
+                  - type: string
+                    description: Raw SSE frames containing serialized JobEvent data payloads.
+                  - $ref: "#/components/schemas/JobEvent"
+              examples:
+                eventFrame:
+                  value: |
+                    id: 12
+                    event: job.progress
+                    data: {"sequence":12,"timestamp":"2026-04-28T00:00:12Z","type":"job.progress","jobId":"018f0000-0000-7000-8000-000000000001","message":"Running /opsx-ff"}
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "500": { $ref: "#/components/responses/InternalError" }
+
+  /jobs/{jobId}/prompts/{requestId}/reply:
+    post:
+      summary: Reply to a pending job prompt
+      operationId: replyToSpecdJobPrompt
+      tags: [specd API]
+      parameters:
+        - $ref: "#/components/parameters/JobId"
+        - $ref: "#/components/parameters/RequestId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PromptReplyRequest"
+      responses:
+        "202":
+          description: Prompt reply accepted and recorded.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/JobResource"
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+        "500": { $ref: "#/components/responses/InternalError" }
+
+  /jobs/{jobId}/prompts/{requestId}/reject:
+    post:
+      summary: Reject a pending job prompt
+      operationId: rejectSpecdJobPrompt
+      tags: [specd API]
+      parameters:
+        - $ref: "#/components/parameters/JobId"
+        - $ref: "#/components/parameters/RequestId"
+      responses:
+        "202":
+          description: Prompt rejection accepted and recorded.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/JobResource"
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+        "500": { $ref: "#/components/responses/InternalError" }
+
+  /opsx/propose:
+    post:
+      summary: Submit an agent-backed propose workflow
+      operationId: submitSpecdOpsxPropose
+      tags: [specd API]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/OpsxWorkflowRequest"
+      responses:
+        "202": { $ref: "#/components/responses/JobAccepted" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/DisabledCapability" }
+        "500": { $ref: "#/components/responses/InternalError" }
+
+  /opsx/continue:
+    post:
+      summary: Submit an agent-backed continue workflow
+      operationId: submitSpecdOpsxContinue
+      tags: [specd API]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/OpsxWorkflowRequest"
+      responses:
+        "202": { $ref: "#/components/responses/JobAccepted" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/DisabledCapability" }
+        "500": { $ref: "#/components/responses/InternalError" }
+
+  /opsx/ff:
+    post:
+      summary: Submit an agent-backed fast-forward workflow
+      operationId: submitSpecdOpsxFastForward
+      tags: [specd API]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/OpsxWorkflowRequest"
+      responses:
+        "202": { $ref: "#/components/responses/JobAccepted" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/DisabledCapability" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "500": { $ref: "#/components/responses/InternalError" }
+
+  /opsx/apply:
+    post:
+      summary: Submit an agent-backed apply workflow
+      operationId: submitSpecdOpsxApply
+      tags: [specd API]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/OpsxWorkflowRequest"
+      responses:
+        "202": { $ref: "#/components/responses/JobAccepted" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/DisabledCapability" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "500": { $ref: "#/components/responses/InternalError" }
+
+  /opsx/verify:
+    post:
+      summary: Submit an agent-backed verify workflow
+      operationId: submitSpecdOpsxVerify
+      tags: [specd API]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/OpsxWorkflowRequest"
+      responses:
+        "202": { $ref: "#/components/responses/JobAccepted" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/DisabledCapability" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "500": { $ref: "#/components/responses/InternalError" }
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: opaque-token
+
+  parameters:
+    EntryKind:
+      name: entryKind
+      in: path
+      required: true
+      schema:
+        $ref: "#/components/schemas/EntryKind"
+    EntryId:
+      name: entryId
+      in: path
+      required: true
+      schema:
+        type: string
+    EntryKindQuery:
+      name: entryKind
+      in: query
+      required: true
+      schema:
+        $ref: "#/components/schemas/EntryKind"
+    EntryIdQuery:
+      name: entryId
+      in: query
+      required: true
+      schema:
+        type: string
+    ArtifactPathQuery:
+      name: path
+      in: query
+      required: true
+      description: Repo-relative OpenSpec artifact path.
+      schema:
+        type: string
+    Capability:
+      name: capability
+      in: path
+      required: true
+      schema:
+        type: string
+    JobId:
+      name: jobId
+      in: path
+      required: true
+      schema:
+        type: string
+    RequestId:
+      name: requestId
+      in: path
+      required: true
+      schema:
+        type: string
+
+  responses:
+    BadRequest:
+      description: Request validation failed.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+    Unauthorized:
+      description: Missing, malformed, or invalid bearer token.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+    DisabledCapability:
+      description: Agent workflow support is disabled by server configuration.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+    NotFound:
+      description: Requested resource was not found.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+    Conflict:
+      description: Request conflicts with current repository, revision, or job state.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+    SemanticFailure:
+      description: The OpenSpec CLI accepted the request but reported a semantic validation failure.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+    InternalError:
+      description: Server failure or dependency error translated into a typed response.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+    JobAccepted:
+      description: Agent workflow job accepted.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/JobResource"
+
+  schemas:
+    ErrorResponse:
+      type: object
+      required: [code, message]
+      properties:
+        code:
+          type: string
+          description: Stable machine-readable error code such as `unauthorized`, `stale_revision`, `path_traversal`, `cli_timeout`, or `agent_workflows_disabled`.
+        message:
+          type: string
+        details:
+          type: object
+          additionalProperties: true
+
+    HealthResponse:
+      type: object
+      required: [status, serverTime, repositoryReady, openspecReady, jobStoreReady]
+      properties:
+        status:
+          type: string
+          enum: [ok]
+        serverTime:
+          type: string
+          format: date-time
+        repositoryReady:
+          type: boolean
+        openspecReady:
+          type: boolean
+        jobStoreReady:
+          type: boolean
+
+    ServerMetadataResponse:
+      type: object
+      required: [repositoryRoot, openspecBinary, jobStateDir, capabilities, retentionDays]
+      properties:
+        repositoryRoot:
+          type: string
+          description: Server-local repository root path. Clients MUST treat this as server-local metadata.
+        openspecBinary:
+          type: string
+        jobStateDir:
+          type: string
+          description: Server-local job-state directory. Clients MUST treat this as server-local metadata.
+        capabilities:
+          $ref: "#/components/schemas/ServerCapabilities"
+        retentionDays:
+          type: integer
+          enum: [30]
+
+    ServerCapabilities:
+      type: object
+      required: [artifactUpdate, canonicalSpecs, deterministicOperations, superdirContext, agentWorkflows]
+      properties:
+        artifactUpdate:
+          type: boolean
+        canonicalSpecs:
+          type: boolean
+        deterministicOperations:
+          type: boolean
+        superdirContext:
+          type: boolean
+        agentWorkflows:
+          type: boolean
+
+    EntryKind:
+      type: string
+      enum: [backlog, active, archived]
+
+    EntryListResponse:
+      type: object
+      required: [entries]
+      properties:
+        entries:
+          type: array
+          items:
+            $ref: "#/components/schemas/EntrySummary"
+
+    EntrySummary:
+      type: object
+      required: [kind, id, title, artifactPresence, lastModified]
+      properties:
+        kind:
+          $ref: "#/components/schemas/EntryKind"
+        id:
+          type: string
+        title:
+          type: string
+        schemaName:
+          type: string
+          nullable: true
+        status:
+          type: string
+          nullable: true
+        taskProgress:
+          $ref: "#/components/schemas/TaskProgress"
+        artifactPresence:
+          type: array
+          items:
+            $ref: "#/components/schemas/ArtifactPresence"
+        lastModified:
+          type: string
+          format: date-time
+
+    EntryDetailResponse:
+      type: object
+      required: [entry, artifacts, associatedSuperdirs]
+      properties:
+        entry:
+          $ref: "#/components/schemas/EntrySummary"
+        artifacts:
+          type: array
+          items:
+            $ref: "#/components/schemas/ArtifactNode"
+        associatedSuperdirs:
+          type: array
+          items:
+            $ref: "#/components/schemas/SuperdirSummary"
+
+    TaskProgress:
+      type: object
+      nullable: true
+      required: [completed, total]
+      properties:
+        completed:
+          type: integer
+          minimum: 0
+        total:
+          type: integer
+          minimum: 0
+
+    ArtifactPresence:
+      type: object
+      required: [kind, present]
+      properties:
+        kind:
+          type: string
+          enum: [proposal, design, tasks, readme, spec, other]
+        present:
+          type: boolean
+        count:
+          type: integer
+          minimum: 0
+          nullable: true
+
+    ArtifactNode:
+      type: object
+      required: [path, kind, exists, editable, directory]
+      properties:
+        path:
+          type: string
+          description: Repo-relative path constrained to allowed OpenSpec artifact locations.
+        name:
+          type: string
+        kind:
+          type: string
+          enum: [proposal, design, tasks, readme, spec, directory, other]
+        exists:
+          type: boolean
+        editable:
+          type: boolean
+        directory:
+          type: boolean
+        sizeBytes:
+          type: integer
+          minimum: 0
+          nullable: true
+        modifiedAt:
+          type: string
+          format: date-time
+          nullable: true
+        revisionToken:
+          type: string
+          nullable: true
+        children:
+          type: array
+          items:
+            $ref: "#/components/schemas/ArtifactNode"
+
+    ArtifactContentResponse:
+      type: object
+      required: [artifact, content, revisionToken]
+      properties:
+        artifact:
+          $ref: "#/components/schemas/ArtifactNode"
+        content:
+          type: string
+        revisionToken:
+          type: string
+
+    ArtifactUpdateRequest:
+      type: object
+      required: [entryKind, entryId, path, content, expectedRevisionToken]
+      properties:
+        entryKind:
+          $ref: "#/components/schemas/EntryKind"
+        entryId:
+          type: string
+        path:
+          type: string
+        content:
+          type: string
+        expectedRevisionToken:
+          type: string
+
+    ArtifactUpdateResponse:
+      type: object
+      required: [artifact, revisionToken]
+      properties:
+        artifact:
+          $ref: "#/components/schemas/ArtifactNode"
+        revisionToken:
+          type: string
+
+    CreateChangeRequest:
+      type: object
+      required: [name]
+      properties:
+        name:
+          type: string
+        title:
+          type: string
+          nullable: true
+
+    CreateBacklogRequest:
+      type: object
+      required: [name]
+      properties:
+        name:
+          type: string
+        title:
+          type: string
+          nullable: true
+
+    CanonicalSpecListResponse:
+      type: object
+      required: [specs]
+      properties:
+        specs:
+          type: array
+          items:
+            $ref: "#/components/schemas/CanonicalSpecSummary"
+
+    CanonicalSpecSummary:
+      type: object
+      required: [capability, path, sizeBytes, modifiedAt]
+      properties:
+        capability:
+          type: string
+        path:
+          type: string
+        sizeBytes:
+          type: integer
+          minimum: 0
+        modifiedAt:
+          type: string
+          format: date-time
+        content:
+          type: string
+          nullable: true
+
+    CanonicalSpecDetailResponse:
+      type: object
+      required: [spec, content]
+      properties:
+        spec:
+          $ref: "#/components/schemas/CanonicalSpecSummary"
+        content:
+          type: string
+
+    OpenSpecChangeRequest:
+      type: object
+      required: [changeName]
+      properties:
+        changeName:
+          type: string
+
+    OpenSpecInstructionsRequest:
+      type: object
+      required: [changeName, action]
+      properties:
+        changeName:
+          type: string
+        action:
+          type: string
+          enum: [apply, verify, continue, ff, propose]
+
+    OpenSpecValidateRequest:
+      type: object
+      required: [targetType, name]
+      properties:
+        targetType:
+          type: string
+          enum: [change, spec]
+        name:
+          type: string
+
+    OpenSpecStatusResponse:
+      type: object
+      required: [changeName, schemaName, isComplete, artifacts]
+      properties:
+        changeName:
+          type: string
+        schemaName:
+          type: string
+        isComplete:
+          type: boolean
+        artifacts:
+          type: array
+          items:
+            type: object
+            additionalProperties: true
+
+    OpenSpecInstructionsResponse:
+      type: object
+      required: [changeName, schemaName, state, instruction]
+      properties:
+        changeName:
+          type: string
+        schemaName:
+          type: string
+        state:
+          type: string
+          enum: [blocked, ready, all_done]
+        instruction:
+          type: string
+        progress:
+          $ref: "#/components/schemas/TaskProgress"
+        contextFiles:
+          type: object
+          additionalProperties:
+            type: array
+            items:
+              type: string
+
+    OpenSpecValidationResponse:
+      type: object
+      required: [ok, output]
+      properties:
+        ok:
+          type: boolean
+        output:
+          type: string
+        errors:
+          type: array
+          items:
+            type: string
+
+    SuperdirListResponse:
+      type: object
+      required: [superdirs]
+      properties:
+        superdirs:
+          type: array
+          items:
+            $ref: "#/components/schemas/SuperdirSummary"
+
+    SuperdirSummary:
+      type: object
+      required: [id, directoryName, directoryPath, changeName, targetName, associationKind, associationSource, active, serverLocal]
+      properties:
+        id:
+          type: string
+        directoryName:
+          type: string
+        directoryPath:
+          type: string
+          description: Server-local Superdir worktree path.
+        changeName:
+          type: string
+          description: Compatibility alias for the resolved target OpenSpec name.
+        targetName:
+          type: string
+          description: Resolved target OpenSpec name from CHANGE_NAME, SUPER_CHANGE, or directory-name inference.
+        associationKind:
+          type: string
+          enum: [active-change, backlog, archived-change, unmatched]
+        associationSource:
+          type: string
+          enum: [explicit, legacy, inferred]
+        associatedEntryKind:
+          $ref: "#/components/schemas/EntryKind"
+          nullable: true
+        associatedEntryName:
+          type: string
+          nullable: true
+        active:
+          type: boolean
+        recentActivity:
+          type: string
+          nullable: true
+        taskProgress:
+          $ref: "#/components/schemas/TaskProgress"
+        serviceBindings:
+          type: array
+          items:
+            $ref: "#/components/schemas/ServiceBinding"
+        serverLocal:
+          type: boolean
+          description: True when values such as paths or URLs are meaningful on the server host only.
+
+    ServiceBinding:
+      type: object
+      required: [service, url, loopbackOnly, serverLocal]
+      properties:
+        service:
+          type: string
+        url:
+          type: string
+        loopbackOnly:
+          type: boolean
+        serverLocal:
+          type: boolean
+
+    SuperdirSetupRequest:
+      type: object
+      required: [changeName]
+      properties:
+        changeName:
+          type: string
+        allowDirty:
+          type: boolean
+          default: false
+
+    JobListResponse:
+      type: object
+      required: [jobs]
+      properties:
+        jobs:
+          type: array
+          items:
+            $ref: "#/components/schemas/JobResource"
+
+    JobResource:
+      type: object
+      required: [jobId, operation, status, target, createdAt, cancellationRequested]
+      properties:
+        jobId:
+          type: string
+        operation:
+          type: string
+          enum: [sync, archive, superdir-setup, opsx-propose, opsx-continue, opsx-ff, opsx-apply, opsx-verify]
+        status:
+          type: string
+          enum: [queued, running, awaiting_input, cancelling, succeeded, failed, cancelled]
+        target:
+          $ref: "#/components/schemas/JobTarget"
+        createdAt:
+          type: string
+          format: date-time
+        startedAt:
+          type: string
+          format: date-time
+          nullable: true
+        finishedAt:
+          type: string
+          format: date-time
+          nullable: true
+        summary:
+          type: string
+          nullable: true
+        result:
+          type: object
+          nullable: true
+          additionalProperties: true
+        error:
+          $ref: "#/components/schemas/ErrorResponse"
+        pendingPrompt:
+          $ref: "#/components/schemas/PromptRequest"
+        cancellationRequested:
+          type: boolean
+        recoveryNote:
+          type: string
+          nullable: true
+
+    JobTarget:
+      type: object
+      properties:
+        changeName:
+          type: string
+          nullable: true
+        entryKind:
+          $ref: "#/components/schemas/EntryKind"
+        superdirId:
+          type: string
+          nullable: true
+
+    JobEvent:
+      type: object
+      required: [sequence, timestamp, type, jobId]
+      properties:
+        sequence:
+          type: integer
+          minimum: 1
+        timestamp:
+          type: string
+          format: date-time
+        type:
+          type: string
+          enum: [job.created, job.started, job.progress, job.prompt, job.prompt_reply, job.prompt_reject, job.cancel_requested, job.succeeded, job.failed, job.cancelled]
+        jobId:
+          type: string
+        message:
+          type: string
+          nullable: true
+        payload:
+          type: object
+          additionalProperties: true
+
+    PromptRequest:
+      type: object
+      nullable: true
+      required: [id, questions]
+      properties:
+        id:
+          type: string
+        questions:
+          type: array
+          items:
+            $ref: "#/components/schemas/PromptQuestion"
+
+    PromptQuestion:
+      type: object
+      required: [header, question, options, multiple, custom]
+      properties:
+        header:
+          type: string
+        question:
+          type: string
+        options:
+          type: array
+          items:
+            $ref: "#/components/schemas/PromptOption"
+        multiple:
+          type: boolean
+        custom:
+          type: boolean
+
+    PromptOption:
+      type: object
+      required: [label, description]
+      properties:
+        label:
+          type: string
+        description:
+          type: string
+
+    PromptReplyRequest:
+      type: object
+      required: [answers]
+      properties:
+        answers:
+          type: array
+          description: Ordered per-question answers; each item preserves the existing prompt `List<String>` answer shape.
+          items:
+            type: array
+            items:
+              type: string
+
+    OpsxWorkflowRequest:
+      type: object
+      properties:
+        changeName:
+          type: string
+          nullable: true
+        prompt:
+          type: string
+          nullable: true
+        dryRun:
+          type: boolean
+          default: false
