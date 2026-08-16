@@ -27,8 +27,16 @@ func (r *Repository) ListSuperdirs(superRoot string) (SuperdirListResponse, erro
 		}
 		path := filepath.Join(superRoot, d.Name())
 		env := readSafeEnv(filepath.Join(path, ".env"))
+		infrastructure := isCanonicalInfrastructureClone(d.Name())
 		targetName, associationSource := superdirTarget(env, d.Name())
 		associationKind, associatedEntryKind, associatedEntryName := r.classifySuperdirTarget(targetName)
+		if infrastructure {
+			targetName = d.Name()
+			associationSource = SuperdirAssociationSourceInferred
+			associationKind = SuperdirAssociationInfrastructure
+			associatedEntryKind = nil
+			associatedEntryName = nil
+		}
 		mtime, _ := newestMTime(path)
 		var progress *TaskProgress
 		for _, candidate := range []string{filepath.Join(path, "tasks.md"), filepath.Join(path, "openspec", "changes", targetName, "tasks.md")} {
@@ -36,6 +44,10 @@ func (r *Repository) ListSuperdirs(superRoot string) (SuperdirListResponse, erro
 			if progress != nil {
 				break
 			}
+		}
+		serviceBindings := safeServiceBindings(env)
+		if infrastructure {
+			serviceBindings = nil
 		}
 		items = append(items, SuperdirSummary{
 			ID:                  d.Name(),
@@ -50,7 +62,7 @@ func (r *Repository) ListSuperdirs(superRoot string) (SuperdirListResponse, erro
 			Active:              fileExists(filepath.Join(path, ".env")),
 			RecentActivity:      recentActivity(mtime),
 			TaskProgress:        progress,
-			ServiceBindings:     safeServiceBindings(env),
+			ServiceBindings:     serviceBindings,
 			ServerLocal:         true,
 		})
 	}
@@ -68,11 +80,23 @@ func FilterSuperdirsForEntry(items []SuperdirSummary, entryKind, entryName strin
 	}
 	var out []SuperdirSummary
 	for _, item := range items {
+		if item.AssociationKind == SuperdirAssociationInfrastructure {
+			continue
+		}
 		if item.AssociatedEntryKind != nil && item.AssociatedEntryName != nil && *item.AssociatedEntryKind == entryKind && *item.AssociatedEntryName == entryName {
 			out = append(out, item)
 		}
 	}
 	return out
+}
+
+func isCanonicalInfrastructureClone(dirName string) bool {
+	switch dirName {
+	case "merge-train", "archive-train", "super-master":
+		return true
+	default:
+		return false
+	}
 }
 
 func superdirTarget(env map[string]string, dirName string) (string, string) {

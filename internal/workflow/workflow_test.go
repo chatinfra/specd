@@ -1,6 +1,9 @@
 package workflow
 
-import "testing"
+import (
+	"reflect"
+	"testing"
+)
 
 func TestSkillCommandMapping(t *testing.T) {
 	cases := map[string]string{
@@ -18,5 +21,21 @@ func TestSkillCommandMapping(t *testing.T) {
 	}
 	if _, err := SkillCommand("shell"); err == nil {
 		t.Fatal("unknown workflow unexpectedly succeeded")
+	}
+}
+
+func TestSuperdirSetupArgsUseDirtyFlagWhenAllowed(t *testing.T) {
+	got := superdirSetupArgs("change-123", true)
+	want := []string{"setup", "change-123", "--json", "--dirty"}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("superdirSetupArgs(..., true) = %#v; want %#v", got, want)
+	}
+}
+
+func TestSuperdirSetupArgsOmitDirtyFlagByDefault(t *testing.T) {
+	got := superdirSetupArgs("change-123", false)
+	want := []string{"setup", "change-123", "--json"}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("superdirSetupArgs(..., false) = %#v; want %#v", got, want)
 	}
 }

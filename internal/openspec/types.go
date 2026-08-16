@@ -10,6 +10,7 @@ const (
 	SuperdirAssociationActiveChange   = "active-change"
 	SuperdirAssociationBacklog        = "backlog"
 	SuperdirAssociationArchivedChange = "archived-change"
+	SuperdirAssociationInfrastructure = "infrastructure"
 	SuperdirAssociationUnmatched      = "unmatched"
 
 	SuperdirAssociationSourceExplicit = "explicit"

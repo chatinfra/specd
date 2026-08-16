@@ -60,6 +60,7 @@ func TestRepositoryCreateRejectsDuplicates(t *testing.T) {
 
 func TestRepositoryListSuperdirsClassifiesAssociationMetadataSafely(t *testing.T) {
 	repoRoot := repoFixture(t)
+	mustWrite(t, filepath.Join(repoRoot, "openspec", "changes", "merge-train", "proposal.md"), "proposal\n")
 	mustWrite(t, filepath.Join(repoRoot, "openspec", "backlog", "backlog-change", "proposal.md"), "proposal\n")
 	mustWrite(t, filepath.Join(repoRoot, "openspec", "changes", "archive", "2026-05-12-archived-change", "proposal.md"), "proposal\n")
 	superRoot := filepath.Join(tempDir(t), "superdirs")
@@ -67,6 +68,11 @@ func TestRepositoryListSuperdirsClassifiesAssociationMetadataSafely(t *testing.T
 	mustWrite(t, filepath.Join(superRoot, "backlog-change-1234567890", ".env"), "SUPER_CHANGE=backlog-change\n")
 	mustWrite(t, filepath.Join(superRoot, "archived-change-1234567890", ".env"), "SUPER_NAME=archived-change-1234567890\n")
 	mustWrite(t, filepath.Join(superRoot, "typo-change-1234567890", ".env"), "SUPER_NAME=typo-change-1234567890\n")
+	if err := os.MkdirAll(filepath.Join(superRoot, "merge-train"), 0o755); err != nil {
+		t.Fatalf("mkdir merge-train: %v", err)
+	}
+	mustWrite(t, filepath.Join(superRoot, "archive-train", ".env"), "CHANGE_NAME=alpha-change\nOPENCODE_URL=http://127.0.0.1:2777\n")
+	mustWrite(t, filepath.Join(superRoot, "super-master", ".env"), "SUPER_CHANGE=alpha-change\n")
 
 	repo := NewRepository(repoRoot, fakeOpenSpec(t), time.Second)
 	resp, err := repo.ListSuperdirs(superRoot)
@@ -101,6 +107,19 @@ func TestRepositoryListSuperdirsClassifiesAssociationMetadataSafely(t *testing.T
 	if unmatched.AssociationKind != SuperdirAssociationUnmatched || unmatched.AssociatedEntryKind != nil || unmatched.AssociatedEntryName != nil {
 		t.Fatalf("unmatched association = %#v", unmatched)
 	}
+
+	for _, dirName := range []string{"merge-train", "archive-train", "super-master"} {
+		infra := byDir[dirName]
+		if infra.TargetName != dirName || infra.AssociationKind != SuperdirAssociationInfrastructure || infra.AssociationSource != SuperdirAssociationSourceInferred {
+			t.Fatalf("infrastructure association for %s = %#v", dirName, infra)
+		}
+		if infra.AssociatedEntryKind != nil || infra.AssociatedEntryName != nil {
+			t.Fatalf("infrastructure associated entry for %s = %#v", dirName, infra)
+		}
+		if len(infra.ServiceBindings) != 0 {
+			t.Fatalf("infrastructure service bindings for %s = %#v", dirName, infra.ServiceBindings)
+		}
+	}
 }
 
 func repoFixture(t *testing.T) string {
@@ -131,8 +150,12 @@ func tempDir(t *testing.T) string {
 	if base == "" {
 		base = filepath.Join("..", "..", "..", "tmp", "specd-tests")
 	}
-	_ = os.MkdirAll(base, 0o755)
-	dir, err := os.MkdirTemp(base, "openspec-test-*")
+	absBase, err := filepath.Abs(base)
+	if err != nil {
+		t.Fatalf("abs temp base: %v", err)
+	}
+	_ = os.MkdirAll(absBase, 0o755)
+	dir, err := os.MkdirTemp(absBase, "openspec-test-*")
 	if err != nil {
 		t.Fatalf("MkdirTemp() error = %v", err)
 	}

@@ -78,10 +78,7 @@ func (r *Runner) SubmitSuperdirSetup(ctx context.Context, req SuperdirSetupReque
 	go func() {
 		_, _ = r.Store.Start(resource.JobID)
 		_ = r.Store.Append(resource.JobID, "job.progress", "running superdir setup", map[string]any{"changeName": changeName, "allowDirty": req.AllowDirty})
-		args := []string{"setup", changeName, "--json"}
-		if req.AllowDirty {
-			args = append(args, "--allow-dirty")
-		}
+		args := superdirSetupArgs(changeName, req.AllowDirty)
 		cmd := exec.CommandContext(context.Background(), "superdir", args...)
 		var stdout, stderr bytes.Buffer
 		cmd.Stdout = &stdout
@@ -114,6 +111,14 @@ func (r *Runner) SubmitAgent(ctx context.Context, operation string, req OpsxRequ
 	}
 	go r.runAgentJob(context.Background(), resource.JobID, operation, skill, req)
 	return resource, nil
+}
+
+func superdirSetupArgs(changeName string, allowDirty bool) []string {
+	args := []string{"setup", changeName, "--json"}
+	if allowDirty {
+		args = append(args, "--dirty")
+	}
+	return args
 }
 
 func SkillCommand(operation string) (string, error) {

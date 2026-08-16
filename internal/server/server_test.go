@@ -20,6 +20,9 @@ func TestServerAuthHealthMetadataAndEntries(t *testing.T) {
 	superRoot := filepath.Join(repoRoot, "superdirs")
 	mustWrite(t, filepath.Join(superRoot, "alpha-change-1234567890", ".env"), "CHANGE_NAME=alpha-change\n")
 	mustWrite(t, filepath.Join(superRoot, "typo-change-1234567890", ".env"), "CHANGE_NAME=typo-change\n")
+	mustMkdir(t, filepath.Join(superRoot, "merge-train"))
+	mustWrite(t, filepath.Join(superRoot, "archive-train", ".env"), "CHANGE_NAME=alpha-change\nOPENCODE_URL=http://127.0.0.1:2777\n")
+	mustWrite(t, filepath.Join(superRoot, "super-master", ".env"), "SUPER_CHANGE=alpha-change\n")
 	cfg := Config{RepoRoot: repoRoot, OpenSpecBin: openspecBin, BearerToken: "secret", Host: "127.0.0.1", Port: 2781, JobStateDir: jobDir, SuperRoot: superRoot, CommandTimeout: time.Second}
 	repo, store, err := cfg.NewDependencies()
 	if err != nil {
@@ -51,6 +54,7 @@ func TestServerAuthHealthMetadataAndEntries(t *testing.T) {
 	}
 	var superdirsBody struct {
 		Superdirs []struct {
+			DirectoryName   string `json:"directoryName"`
 			TargetName      string `json:"targetName"`
 			AssociationKind string `json:"associationKind"`
 		} `json:"superdirs"`
@@ -59,13 +63,22 @@ func TestServerAuthHealthMetadataAndEntries(t *testing.T) {
 		t.Fatalf("superdirs JSON invalid: %v", err)
 	}
 	foundUnmatched := false
+	foundInfrastructure := map[string]bool{}
 	for _, item := range superdirsBody.Superdirs {
 		if item.TargetName == "typo-change" && item.AssociationKind == "unmatched" {
 			foundUnmatched = true
 		}
+		if item.AssociationKind == "infrastructure" {
+			foundInfrastructure[item.DirectoryName] = true
+		}
 	}
 	if !foundUnmatched {
 		t.Fatalf("superdirs did not include unmatched metadata: %#v", superdirsBody.Superdirs)
+	}
+	for _, dirName := range []string{"merge-train", "archive-train", "super-master"} {
+		if !foundInfrastructure[dirName] {
+			t.Fatalf("superdirs did not include infrastructure metadata for %s: %#v", dirName, superdirsBody.Superdirs)
+		}
 	}
 	detail := requestJSON(t, handler, http.MethodGet, "/entries/active/alpha-change", nil, "secret")
 	if detail.Code != http.StatusOK {
@@ -194,10 +207,14 @@ func tempDir(t *testing.T) string {
 	if base == "" {
 		base = filepath.Join("..", "..", "..", "tmp", "specd-tests")
 	}
-	if err := os.MkdirAll(base, 0o755); err != nil {
+	absBase, err := filepath.Abs(base)
+	if err != nil {
+		t.Fatalf("abs temp base: %v", err)
+	}
+	if err := os.MkdirAll(absBase, 0o755); err != nil {
 		t.Fatalf("mkdir temp base: %v", err)
 	}
-	dir, err := os.MkdirTemp(base, "specd-test-*")
+	dir, err := os.MkdirTemp(absBase, "specd-test-*")
 	if err != nil {
 		t.Fatalf("MkdirTemp() error = %v", err)
 	}

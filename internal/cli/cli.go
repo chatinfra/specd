@@ -54,7 +54,7 @@ func Run(args []string, stdout, stderr io.Writer) error {
 		emitError(stderr, err)
 		return err
 	}
-	if len(args) == 0 || args[0] == "help" || args[0] == "--help" || args[0] == "-h" {
+	if len(args) == 0 || (len(args) == 1 && args[0] == "help") || args[0] == "--help" || args[0] == "-h" {
 		return printUsage(stdout)
 	}
 	opts, rest, err := parse(args, os.Getenv)
@@ -65,6 +65,9 @@ func Run(args []string, stdout, stderr io.Writer) error {
 	if len(rest) == 0 {
 		err := errors.New("missing command")
 		emitError(stderr, err)
+		return err
+	}
+	if handled, err := handleHelpRequest(rest, stdout, stderr); handled {
 		return err
 	}
 	switch rest[0] {
@@ -90,7 +93,7 @@ func Run(args []string, stdout, stderr io.Writer) error {
 		}
 		return writeYAML(stdout, statusPayload("validate-config", "ok", cfg))
 	default:
-		err := &commandError{code: "unknown_command", message: fmt.Sprintf("unknown command %q", rest[0]), details: map[string]any{"command": rest[0]}}
+		err := unknownCommandError(rest[0])
 		emitError(stderr, err)
 		return err
 	}
@@ -101,8 +104,8 @@ func rejectJSONFlag(args []string) error {
 		if arg == "--json" || strings.HasPrefix(arg, "--json=") {
 			return &commandError{
 				code:    "unsupported_flag",
-				message: "--json is not supported; specd emits YAML output by default",
-				details: map[string]any{"argument": "--json", "hint": "Remove --json and parse stdout/stderr as YAML."},
+				message: "--json is not supported; specd emits terminal help and YAML command output",
+				details: map[string]any{"argument": "--json", "hint": "Remove --json; use specd schemas for structured YAML output discovery."},
 			}
 		}
 	}
@@ -110,12 +113,16 @@ func rejectJSONFlag(args []string) error {
 }
 
 func schemaDiscovery() map[string]any {
-	ids := []string{"help", "schemas", "error", "validate-config", "serve"}
+	ids := []string{"schemas", "error", "validate-config", "serve"}
+	return map[string]any{"tool": "specd", "schemas": schemaEntries(ids...)}
+}
+
+func schemaEntries(ids ...string) []map[string]string {
 	schemas := make([]map[string]string, 0, len(ids))
 	for _, id := range ids {
 		schemas = append(schemas, map[string]string{"id": id, "path": "spec/outputs/" + id + ".schema.yaml"})
 	}
-	return map[string]any{"tool": "specd", "schemas": schemas}
+	return schemas
 }
 
 func statusPayload(command, status string, cfg server.Config) map[string]any {
@@ -241,30 +248,181 @@ func errorDetails(err error) cliError {
 	return cliError{Code: "internal_error", Message: message}
 }
 
-func printUsage(out io.Writer) error {
-	return writeYAML(out, map[string]any{
-		"tool":    "specd",
-		"summary": "Trusted OpenSpec remote API daemon",
-		"usage":   "specd [global flags] <command>",
-		"flags": []map[string]string{
-			{"name": "--repo-root DIR", "summary": "OpenSpec repository root; env SPECD_REPO_ROOT"},
-			{"name": "--openspec-bin PATH", "summary": "OpenSpec CLI binary; env SPECD_OPENSPEC_BIN"},
-			{"name": "--bearer-token TOKEN", "summary": "required bearer token; env SPECD_BEARER_TOKEN"},
-			{"name": "--host HOST", "summary": "bind host; default 127.0.0.1"},
-			{"name": "--port PORT", "summary": "bind port; default 2781"},
-			{"name": "--job-state-dir DIR", "summary": "durable job-state directory; env SPECD_JOB_STATE_DIR"},
-			{"name": "--super-root DIR", "summary": "Superdir worktree root; env SPECD_SUPER_ROOT or /data/super"},
-			{"name": "--command-timeout DURATION", "summary": "OpenSpec CLI command timeout"},
-			{"name": "--enable-agent-workflows", "summary": "enable agent-backed /opsx-* workflow endpoints"},
-		},
-		"commands": []map[string]string{
-			{"name": "serve", "summary": "start the OpenSpec API daemon", "schema": "serve"},
-			{"name": "validate-config", "summary": "validate daemon configuration", "schema": "validate-config"},
-			{"name": "schemas", "summary": "list output schemas", "schema": "schemas"},
-		},
-		"schemas": []string{"help", "schemas", "error", "serve", "validate-config"},
-	})
+func handleHelpRequest(rest []string, stdout, stderr io.Writer) (bool, error) {
+	if len(rest) == 0 {
+		return false, nil
+	}
+	if rest[0] == "help" {
+		if len(rest) == 1 || rest[1] == "--help" || rest[1] == "-h" {
+			return true, printUsage(stdout)
+		}
+		if ok, err := printCommandUsage(stdout, rest[1]); ok {
+			return true, err
+		}
+		err := unknownCommandError(rest[1])
+		emitError(stderr, err)
+		return true, err
+	}
+	if hasHelpFlag(rest[1:]) {
+		if ok, err := printCommandUsage(stdout, rest[0]); ok {
+			return true, err
+		}
+		err := unknownCommandError(rest[0])
+		emitError(stderr, err)
+		return true, err
+	}
+	return false, nil
 }
+
+func hasHelpFlag(args []string) bool {
+	for _, arg := range args {
+		if arg == "--help" || arg == "-h" {
+			return true
+		}
+	}
+	return false
+}
+
+func unknownCommandError(command string) *commandError {
+	return &commandError{
+		code:    "unknown_command",
+		message: fmt.Sprintf("unknown command %q", command),
+		details: map[string]any{
+			"command": command,
+			"hint":    "Run \"specd help\" to list commands.",
+		},
+	}
+}
+
+func printUsage(out io.Writer) error {
+	_, err := io.WriteString(out, rootHelp)
+	return err
+}
+
+func printCommandUsage(out io.Writer, command string) (bool, error) {
+	help, ok := commandHelpText(command)
+	if !ok {
+		return false, nil
+	}
+	_, err := io.WriteString(out, help)
+	return true, err
+}
+
+func commandHelpText(command string) (string, bool) {
+	switch command {
+	case "serve":
+		return serveHelp, true
+	case "validate-config":
+		return validateConfigHelp, true
+	case "schemas", "schema":
+		return schemasHelp, true
+	default:
+		return "", false
+	}
+}
+
+const rootHelp = `specd — trusted OpenSpec remote API daemon
+
+USAGE
+  specd [global flags] <command>
+  specd help <command>
+  specd <command> --help
+
+COMMANDS
+  serve             Start the OpenSpec API daemon.
+  validate-config   Validate daemon configuration.
+  schemas           List structured YAML output schemas.
+
+FLAGS
+  --repo-root DIR                  OpenSpec repository root (default: SPECD_REPO_ROOT)
+  --openspec-bin PATH              OpenSpec CLI binary (default: SPECD_OPENSPEC_BIN or openspec)
+  --bearer-token TOKEN             Opaque bearer token (default: SPECD_BEARER_TOKEN)
+  --host HOST                      Bind host (default: SPECD_HOST or 127.0.0.1)
+  --port PORT                      Bind port (default: SPECD_PORT or 2781)
+  --job-state-dir DIR              Durable job-state directory (default: SPECD_JOB_STATE_DIR)
+  --super-root DIR                 Superdir worktree root (default: SPECD_SUPER_ROOT or /data/super)
+  --command-timeout DURATION       OpenSpec CLI command timeout (default: SPECD_COMMAND_TIMEOUT or 60s)
+  --enable-agent-workflows         Enable agent-backed /opsx-* workflow endpoints (default: SPECD_ENABLE_AGENT_WORKFLOWS or false)
+
+OUTPUT
+  stdout: help is terminal text; command results are YAML for serve, validate-config, and schemas.
+  stderr: failures are YAML error envelopes; secret values are never printed.
+  structured discovery: run "specd schemas" for supported YAML output schemas.
+
+EXAMPLES
+  specd --repo-root /path/to/super --bearer-token "$SPECD_BEARER_TOKEN" --job-state-dir ./tmp/specd-jobs serve
+  specd --repo-root /path/to/super --bearer-token "$SPECD_BEARER_TOKEN" --job-state-dir ./tmp/specd-jobs validate-config
+  specd schemas
+
+SEE ALSO
+  specd help serve
+  specd help validate-config
+  specd schemas
+`
+
+const serveHelp = `specd serve — start the OpenSpec API daemon
+
+USAGE
+  specd [global flags] serve
+
+FLAGS
+  --repo-root DIR                  OpenSpec repository root (default: SPECD_REPO_ROOT)
+  --openspec-bin PATH              OpenSpec CLI binary (default: SPECD_OPENSPEC_BIN or openspec)
+  --bearer-token TOKEN             Opaque bearer token (default: SPECD_BEARER_TOKEN)
+  --host HOST                      Bind host (default: SPECD_HOST or 127.0.0.1)
+  --port PORT                      Bind port (default: SPECD_PORT or 2781)
+  --job-state-dir DIR              Durable job-state directory (default: SPECD_JOB_STATE_DIR)
+  --super-root DIR                 Superdir worktree root (default: SPECD_SUPER_ROOT or /data/super)
+  --command-timeout DURATION       OpenSpec CLI command timeout (default: SPECD_COMMAND_TIMEOUT or 60s)
+  --enable-agent-workflows         Enable agent-backed /opsx-* workflow endpoints (default: SPECD_ENABLE_AGENT_WORKFLOWS or false)
+
+OUTPUT
+  stdout: YAML startup status with command, status, and address before the server runs.
+  stderr: YAML error envelope when configuration validation or server startup fails.
+  structured discovery: run "specd schemas" and inspect schema id "serve".
+
+EXAMPLES
+  specd --repo-root /path/to/super --bearer-token "$SPECD_BEARER_TOKEN" --job-state-dir ./tmp/specd-jobs serve
+  specd --host 127.0.0.1 --port 2781 --enable-agent-workflows serve
+`
+
+const validateConfigHelp = `specd validate-config — validate daemon configuration
+
+USAGE
+  specd [global flags] validate-config
+
+FLAGS
+  --repo-root DIR                  OpenSpec repository root (default: SPECD_REPO_ROOT)
+  --openspec-bin PATH              OpenSpec CLI binary (default: SPECD_OPENSPEC_BIN or openspec)
+  --bearer-token TOKEN             Opaque bearer token (default: SPECD_BEARER_TOKEN)
+  --host HOST                      Bind host (default: SPECD_HOST or 127.0.0.1)
+  --port PORT                      Bind port (default: SPECD_PORT or 2781)
+  --job-state-dir DIR              Durable job-state directory (default: SPECD_JOB_STATE_DIR)
+  --super-root DIR                 Superdir worktree root (default: SPECD_SUPER_ROOT or /data/super)
+  --command-timeout DURATION       OpenSpec CLI command timeout (default: SPECD_COMMAND_TIMEOUT or 60s)
+  --enable-agent-workflows         Enable agent-backed /opsx-* workflow endpoints (default: SPECD_ENABLE_AGENT_WORKFLOWS or false)
+
+OUTPUT
+  stdout: YAML status with command, status "ok", and address when configuration is valid.
+  stderr: YAML error envelope when configuration is invalid.
+  structured discovery: run "specd schemas" and inspect schema id "validate-config".
+
+EXAMPLES
+  specd --repo-root /path/to/super --bearer-token "$SPECD_BEARER_TOKEN" --job-state-dir ./tmp/specd-jobs validate-config
+`
+
+const schemasHelp = `specd schemas — list structured YAML output schemas
+
+USAGE
+  specd schemas
+
+OUTPUT
+  stdout: YAML document listing supported structured output schema ids and repo-relative schema paths.
+  stderr: YAML error envelope when schema discovery fails.
+
+EXAMPLES
+  specd schemas
+`
 
 func writeYAML(out io.Writer, value any) error {
 	data, err := json.Marshal(value)

@@ -1086,13 +1086,13 @@ components:
           description: Server-local Superdir worktree path.
         changeName:
           type: string
-          description: Compatibility alias for the resolved target OpenSpec name.
+          description: Compatibility alias for the resolved target name or fixed infrastructure clone name.
         targetName:
           type: string
-          description: Resolved target OpenSpec name from CHANGE_NAME, SUPER_CHANGE, or directory-name inference.
+          description: Resolved target OpenSpec name from CHANGE_NAME, SUPER_CHANGE, directory-name inference, or fixed infrastructure clone identity.
         associationKind:
           type: string
-          enum: [active-change, backlog, archived-change, unmatched]
+          enum: [active-change, backlog, archived-change, infrastructure, unmatched]
         associationSource:
           type: string
           enum: [explicit, legacy, inferred]
@@ -1109,6 +1109,11 @@ components:
           nullable: true
         taskProgress:
           $ref: "#/components/schemas/TaskProgress"
+        sessionRecencyAtEpochMillis:
+          type: integer
+          format: int64
+          nullable: true
+          description: Absolute epoch milliseconds for session-derived activity recency when available.
         serviceBindings:
           type: array
           items:
