@@ -113,8 +113,11 @@ func (r *Runner) SubmitAgent(ctx context.Context, operation string, req OpsxRequ
 	return resource, nil
 }
 
+// superdirSetupArgs reserves the Superdir associated with an OpenSpec change. The setup CLI no longer
+// derives an identity from the name, so the change kind is declared explicitly: without it a change
+// that serve's catalog has not seen yet would be refused instead of admitted as that change.
 func superdirSetupArgs(changeName string, allowDirty bool) []string {
-	args := []string{"setup", changeName, "--json"}
+	args := []string{"setup", changeName, "--work-item-kind", "openspec-change", "--json"}
 	if allowDirty {
 		args = append(args, "--dirty")
 	}

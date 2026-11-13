@@ -1141,6 +1141,7 @@ components:
       properties:
         changeName:
           type: string
+          description: OpenSpec change whose associated Superdir is reserved. specd declares the `openspec-change` work-item kind for it, so a change serve's catalog has not seen yet is still admitted as that change.
         allowDirty:
           type: boolean
           default: false
