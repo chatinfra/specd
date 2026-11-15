@@ -48,6 +48,8 @@ The HTTP wire contract served by the daemon is `openapi/openapi-specd.yaml`, pub
 | `specd validate-config` | Validate the resolved configuration and emit a `validate-config` / `ok` document without binding a port |
 | `specd schemas` | Print structured-output schema discovery |
 
+OpenSpec archive and sync jobs refuse a change whose root contains `canon-ops/`: the job fails with error code `canon_ops_refused` before the OpenSpec command runs, because those canonical text operations apply only through the repository's own publisher archive.
+
 ## Configuration
 
 Global flags carry matching environment defaults:

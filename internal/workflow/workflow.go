@@ -3,9 +3,13 @@ package workflow
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
+	"io/fs"
 	"net/http"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 
 	"github.com/chatinfra/specd/internal/apierr"
@@ -144,6 +148,10 @@ func SkillCommand(operation string) (string, error) {
 func (r *Runner) runOpenSpecJob(ctx context.Context, jobID, operation, changeName string) {
 	_, _ = r.Store.Start(jobID)
 	_ = r.Store.Append(jobID, "job.progress", "running OpenSpec CLI operation", map[string]any{"operation": operation, "changeName": changeName})
+	if refusal := canonOperationsRefusal(r.Repo, operation, changeName); refusal != nil {
+		_, _ = r.Store.Fail(jobID, *refusal)
+		return
+	}
 	var stdout, stderr string
 	var err error
 	switch operation {
@@ -159,6 +167,30 @@ func (r *Runner) runOpenSpecJob(ctx context.Context, jobID, operation, changeNam
 		return
 	}
 	_, _ = r.Store.Succeed(jobID, "OpenSpec operation completed", map[string]any{"kind": operation, "changeName": changeName, "stdout": stdout, "stderr": stderr})
+}
+
+// CanonOperationsRefusedCode is the job error code for an archive or sync of a change carrying
+// canonical text operations. Only the repository's publisher archive applies them, through the
+// `canon-ops apply` launcher command; native archive or sync here would leave them unapplied.
+const CanonOperationsRefusedCode = "canon_ops_refused"
+
+// canonOperationsRefusal returns the typed job error when an archive or sync targets a change whose
+// root contains `canon-ops/` in any form, before any OpenSpec command runs.
+func canonOperationsRefusal(repo *openspec.Repository, operation, changeName string) *job.ErrorResponse {
+	if operation != "archive" && operation != "sync" {
+		return nil
+	}
+	if repo == nil {
+		return nil
+	}
+	path := filepath.Join(repo.Root, "openspec", "changes", changeName, "canon-ops")
+	if _, err := os.Lstat(path); errors.Is(err, fs.ErrNotExist) {
+		return nil
+	}
+	return &job.ErrorResponse{
+		Code:    CanonOperationsRefusedCode,
+		Message: fmt.Sprintf("change %q carries canonical text operations (canon-ops/); only the repository's publisher archive applies them, so specd refuses to %s it", changeName, operation),
+	}
 }
 
 func (r *Runner) runAgentJob(ctx context.Context, jobID, operation, skill string, req OpsxRequest) {
